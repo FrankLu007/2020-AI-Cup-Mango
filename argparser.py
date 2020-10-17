@@ -1,7 +1,7 @@
 import sys
 
-args = {'epoch' : 100, 'learning_rate' : 0.01, 'batch_size' : 32, 'load' : None, 'save' : None, 'thread' : 1, 'class' : 0}
-float_args = ['learning_rate']
+args = {'ep' : 100, 'lr' : 0.01, 'bs' : 32, 'load' : None, 'save' : None, 'thread' : 1}
+float_args = ['lr']
 str_args = ['load', 'save']
 args_parse = 0 # 1 if args have been parsed
 
