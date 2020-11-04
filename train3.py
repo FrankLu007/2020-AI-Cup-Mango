@@ -2,7 +2,7 @@ import os
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from model import ImageNet
+from model import ImageNet, ViTNet
 from argparser import get_args
 
 def forward(DataLoader, model, LossFunction, optimizer = None) :
@@ -56,8 +56,8 @@ def forward(DataLoader, model, LossFunction, optimizer = None) :
 if __name__ == '__main__' :
 
 	args = get_args()
-	ModelPath = '..\\'
-	DataPath = '..\\MangoData\\'
+	ModelPath = '../'
+	DataPath = '../MangoData/'
 
 	transform_train = transforms.Compose([
 		transforms.RandomRotation(180),
@@ -73,21 +73,21 @@ if __name__ == '__main__' :
 	    transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
 	])
 
-	weights = torch.IntTensor([len(f) for r, d, f in os.walk(DataPath + "train\\")][1:])
+	weights = torch.IntTensor([28585, 11140, 5275])
 	total = int(sum(weights))
 	sampler = torch.utils.data.sampler.WeightedRandomSampler(torch.Tensor([total / float(weights[0]) for _ in range(weights[0])] + [total / float(weights[1]) for _ in range(weights[1])] + [total / float(weights[2]) for _ in range(weights[2])]), total)
 	del weights
 
-	TrainingSet = torchvision.datasets.ImageFolder(root = DataPath + 'train\\', transform = transform_train)
-	ValidationSet = torchvision.datasets.ImageFolder(root = DataPath + 'validation\\', transform = transform_test)
+	TrainingSet = torchvision.datasets.ImageFolder(root = DataPath + 'train/', transform = transform_train)
+	ValidationSet = torchvision.datasets.ImageFolder(root = DataPath + 'validation/', transform = transform_test)
 
-	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = 8, pin_memory = True, drop_last = True, sampler = sampler)
-	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = 128, num_workers = 12)
+	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = 36, pin_memory = True, drop_last = True, sampler = sampler)
+	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = 8192, num_workers = 36)
 
 	if args['load'] :
 		model = torch.load(ModelPath + args['load'])
 	else :
-		model = ImageNet().half().cuda()
+		model = ViTNet().half().cuda()
 
 	LossFunction = torch.nn.CrossEntropyLoss()
 	optimizer = torch.optim.SGD(model.parameters(), lr = args['lr'], momentum = 0.9)
