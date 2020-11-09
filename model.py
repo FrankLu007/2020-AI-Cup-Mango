@@ -17,7 +17,7 @@ class ImageNet(nn.Module):
 class ViTNet(nn.Module):
     def __init__(self):
         super(ViTNet, self).__init__()
-        self.ImageNet = ViT(image_size = 224, patch_size = 32, num_classes = 3, dim = 1280, depth = 32, heads = 16, mlp_dim = 2048, dropout = 0.1, emb_dropout = 0.1)
+        self.ImageNet = ViT(image_size = 256, patch_size = 16, num_classes = 3, dim = 256, depth = 32, heads = 16, mlp_dim = 256, dropout = 0.1, emb_dropout = 0.1)
         
     def forward(self, x):
         return self.ImageNet(x)
