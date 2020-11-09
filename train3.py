@@ -1,7 +1,8 @@
 import os
 import torch
-import torchvision
-from model import ImageNet, ViTNet
+import torchvision.transforms
+import torchvision.datasets
+from model import EfficientNetWithFC, resnext101_32x48d_wsl
 from argparser import get_args
 
 def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
@@ -65,7 +66,7 @@ if __name__ == '__main__' :
 
 	transform_train = torchvision.transforms.Compose([
 		torchvision.transforms.RandomRotation(180),
-		torchvision.transforms.Resize((256, 256)),
+		torchvision.transforms.Resize((512, 512)),
 		torchvision.transforms.RandomHorizontalFlip(),
 		torchvision.transforms.GaussianBlur(7, 10),
 		torchvision.transforms.ColorJitter(brightness = (0.75, 1.25), saturation = (0.75, 1.25), contrast = (0.75, 1.25), hue = 0.025),
@@ -74,7 +75,7 @@ if __name__ == '__main__' :
 	])
 
 	transform_test = torchvision.transforms.Compose([
-		torchvision.transforms.Resize((256, 256)),
+		torchvision.transforms.Resize((512, 512)),
 	    torchvision.transforms.ToTensor(),
 	    torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
 	])
@@ -93,7 +94,8 @@ if __name__ == '__main__' :
 	if args['load'] :
 		model = torch.load(ModelPath + args['load'])
 	else :
-		model = ViTNet().cuda()
+		model = resnext101_32x48d_wsl().cuda()
+		# model = EfficientNetWithFC().cuda()
 
 	LossFunction = torch.nn.CrossEntropyLoss()
 	optimizer = torch.optim.SGD(model.parameters(), lr = args['lr'], momentum = 0.9)
