@@ -2,7 +2,7 @@ import os
 import torch
 import torchvision.transforms
 import torchvision.datasets
-from model import EfficientNetWithFC, resnext101_32x48d_wsl
+from model import EfficientNetWithFC, FixResNet
 from argparser import get_args
 
 def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
@@ -17,7 +17,7 @@ def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
 		if optimizer :
 			optimizer.zero_grad()
 		# forward
-		inputs = inputs.cuda()
+		inputs = inputs.half().cuda()
 		with torch.cuda.amp.autocast():
 			outputs = model(inputs)
 			del inputs
@@ -37,7 +37,7 @@ def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
 			scaler.update()
 		
 		# convert to prediction
-		tmp, pred = outputs.max(1)
+		tmp, pred = outputs.detach().max(1)
 		del tmp, outputs
 		
 		# calculate accuracy
@@ -66,7 +66,7 @@ if __name__ == '__main__' :
 
 	transform_train = torchvision.transforms.Compose([
 		torchvision.transforms.RandomRotation(180),
-		torchvision.transforms.Resize((512, 512)),
+		torchvision.transforms.Resize((args['size'], args['size'])),
 		torchvision.transforms.RandomHorizontalFlip(),
 		torchvision.transforms.GaussianBlur(7, 10),
 		torchvision.transforms.ColorJitter(brightness = (0.75, 1.25), saturation = (0.75, 1.25), contrast = (0.75, 1.25), hue = 0.025),
@@ -75,7 +75,7 @@ if __name__ == '__main__' :
 	])
 
 	transform_test = torchvision.transforms.Compose([
-		torchvision.transforms.Resize((512, 512)),
+		torchvision.transforms.Resize((args['size'], args['size'])),
 	    torchvision.transforms.ToTensor(),
 	    torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
 	])
@@ -88,15 +88,15 @@ if __name__ == '__main__' :
 	TrainingSet = torchvision.datasets.ImageFolder(root = DataPath + 'train/', transform = transform_train)
 	ValidationSet = torchvision.datasets.ImageFolder(root = DataPath + 'validation/', transform = transform_test)
 
-	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = 8, pin_memory = True, drop_last = True, sampler = sampler)
-	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = 128, num_workers = 8)
+	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = args['bs'], pin_memory = True, drop_last = True, sampler = sampler)
+	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = 32, num_workers = 8)
 
 	if args['load'] :
 		model = torch.load(ModelPath + args['load'])
 	else :
-		model = resnext101_32x48d_wsl().cuda()
-		# model = EfficientNetWithFC().cuda()
-
+		# model = resnext101_32x48d_wsl().cuda()
+		model = EfficientNetWithFC().cuda()
+	# torch.backends.cudnn.benchmark = True
 	LossFunction = torch.nn.CrossEntropyLoss()
 	optimizer = torch.optim.SGD(model.parameters(), lr = args['lr'], momentum = 0.9)
 	scaler = torch.cuda.amp.GradScaler()
@@ -131,7 +131,8 @@ if __name__ == '__main__' :
 
 	del TrainingSet, ValidationSet, TrainingLoader, ValidationLoader, sampler, optimizer
 	TestingSet = torchvision.datasets.ImageFolder(root = DataPath + 'test/', transform = transform_train)
-	TestingLoader = torch.utils.data.DataLoader(TestingSet, batch_size = 128, num_workers = 8)
+	bs = 32
+	TestingLoader = torch.utils.data.DataLoader(TestingSet, batch_size = bs, num_workers = 8)
 
 	result = torch.zeros((len(TestingSet), 3))
 
@@ -145,7 +146,7 @@ if __name__ == '__main__' :
 				inputs = inputs.cuda()
 				with torch.cuda.amp.autocast():
 					outputs = model(inputs)
-				result[index * 128 : index * 128 + 128] += outputs.detach().cpu()
+				result[index * bs : index * bs + bs] += outputs.detach().cpu()
 				del inputs, outputs, labels
 		cases = [0.0, 0.0, 0.0]
 		correct = [0.0, 0.0, 0.0]
@@ -154,9 +155,9 @@ if __name__ == '__main__' :
 			inputs = inputs.cuda()
 			with torch.cuda.amp.autocast():
 				outputs = model(inputs)
-			result[index * 128 : index * 128 + 128] += outputs.detach().cpu()
+			result[index * bs : index * bs + bs] += outputs.detach().cpu()
 			del inputs, outputs
-			tmp, pred = result[index * 128 : index * 128 + 128].max(1)
+			tmp, pred = result[index * bs : index * bs + bs].max(1)
 			
 			# calculate accuracy
 			for i in range(len(pred)) :

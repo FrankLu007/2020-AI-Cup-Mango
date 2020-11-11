@@ -1,6 +1,6 @@
 import sys
 
-args = {'ep' : 100, 'lr' : 0.01, 'bs' : 8, 'load' : None, 'save' : 'tmp.weight'}
+args = {'ep' : 100, 'size': 256, 'lr' : 0.01, 'bs' : 8, 'load' : None, 'save' : 'tmp.weight', 'show' : 1}
 float_args = ['lr']
 str_args = ['load', 'save']
 args_parse = 0 # 1 if args have been parsed
@@ -35,6 +35,7 @@ def get_args() :
 		else :
 			error_message('Unrecognized argument : ' + sys.argv[index])
 	args_parse = 1
-	print_args()
+	if args['show']:
+		print_args()
 	return args
 
