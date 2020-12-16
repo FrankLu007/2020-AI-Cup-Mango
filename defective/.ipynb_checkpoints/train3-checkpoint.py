@@ -2,7 +2,7 @@ import os
 import torch
 import torchvision.transforms
 import torchvision.datasets
-from model import EfficientNetWithFC, Ensemble, Boosting
+from model import EfficientNetWithFC, Ensemble
 from argparser import get_args
 
 def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
@@ -103,18 +103,18 @@ if __name__ == '__main__' :
 	TrainingSet = torchvision.datasets.ImageFolder(root = DataPath + 'train/', transform = transform_train)
 	ValidationSet = torchvision.datasets.ImageFolder(root = DataPath + 'validation/', transform = transform_test)
 
-	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = 32, pin_memory = True, drop_last = True, sampler = sampler, prefetch_factor = 2)
-	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = args['bs'], num_workers = 32, prefetch_factor = 2)
+	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = 4, pin_memory = True, drop_last = True, sampler = sampler, prefetch_factor = 1)
+	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = args['bs'], num_workers = 4, prefetch_factor = 1)
 
 	if args['load'] :
 		model = torch.load(ModelPath + args['load'])
 	else :
-# 		model = Boosting([torch.load(ModelPath + 'b6.weight'), torch.load(ModelPath + 'b7.weight')]).cuda()
+		model = Ensemble([torch.load(ModelPath + 'b6.weight'), torch.load(ModelPath + 'b7.weight'), torch.load(ModelPath + 'vit.weight')]).cuda()
 # 		model = Vision_Transformer().cuda()
- 		model = EfficientNetWithFC().cuda()
+#  		model = EfficientNetWithFC().cuda()
 	torch.backends.cudnn.benchmark = True
 	LossFunction = torch.nn.CrossEntropyLoss()
-	optimizer = torch.optim.SGD(model.parameters(), lr = args['lr'], momentum = 0.9, weight_decay = args['lr'] * 0.001)
+	optimizer = torch.optim.SGD(model.parameters(), lr = args['lr'], momentum = 0.9)
 	scaler = torch.cuda.amp.GradScaler()
 
 	model.eval()

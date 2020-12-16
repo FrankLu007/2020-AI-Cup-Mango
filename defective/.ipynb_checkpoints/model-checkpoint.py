@@ -7,7 +7,7 @@ from vit_pytorch import ViT
 class EfficientNetWithFC(torch.nn.Module):
     def __init__(self):
         super(EfficientNetWithFC, self).__init__()
-        self.ImageNet = EfficientNet.from_name('efficientnet-b7')
+        self.ImageNet = EfficientNet.from_name('efficientnet-l2')
         self.fc = torch.nn.Linear(1000, 5)
     def forward(self, x):
         return self.fc(self.ImageNet(x))
@@ -26,20 +26,6 @@ class Ensemble(torch.nn.Module):
             x = torch.cat(tuple(m.ImageNet(x) for m in self.models), dim = 1)
         return self.fc2(self.relu(self.fc1(x)))
 
-class Boosting(torch.nn.Module):
-    def __init__(self, models):
-        super(Boosting, self).__init__()
-        self.models = models
-        for m in models:
-            m.eval()
-        self.fc1 = torch.nn.Linear(2560 * 256 + 2304 * 256, 256)
-        self.fc2 = torch.nn.Linear(256, 5)
-        self.relu = torch.nn.ReLU(inplace = True)
-    def forward(self, x):
-        bs = x.shape[0]
-        with torch.no_grad():
-            x = torch.cat(tuple(m.ImageNet.extract_features(x).reshape(bs, -1) for m in self.models), dim = 1)
-        return self.fc2(self.relu(self.fc1(x)))
 
 class Vision_Transformer(torch.nn.Module):
     def __init__(self):
