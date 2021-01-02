@@ -2,12 +2,19 @@ import torch.nn
 import torchvision.models
 import torch.utils.model_zoo
 from efficientnet_pytorch import EfficientNet
-from vit_pytorch import ViT
+
+class ResNet(torch.nn.Module):
+    def __init__(self):
+        super(ResNet, self).__init__()
+        self.ImageNet = torchvision.models.resnet152(pretrained = True, progress = True)
+        self.fc = torch.nn.Linear(1000, 5)
+    def forward(self, x):
+        return self.fc(self.ImageNet(x))
 
 class EfficientNetWithFC(torch.nn.Module):
     def __init__(self):
         super(EfficientNetWithFC, self).__init__()
-        self.ImageNet = EfficientNet.from_name('efficientnet-b7')
+        self.ImageNet = EfficientNet.from_pretrained('efficientnet-b7')
         self.fc = torch.nn.Linear(1000, 5)
     def forward(self, x):
         return self.fc(self.ImageNet(x))
@@ -41,12 +48,6 @@ class Boosting(torch.nn.Module):
             x = torch.cat(tuple(m.ImageNet.extract_features(x).reshape(bs, -1) for m in self.models), dim = 1)
         return self.fc2(self.relu(self.fc1(x)))
 
-class Vision_Transformer(torch.nn.Module):
-    def __init__(self):
-        super(Vision_Transformer, self).__init__()
-        self.ImageNet = ViT(image_size = 512, patch_size = 32, num_classes = 5, dim = 256, depth = 24, heads = 16, mlp_dim = 256, dropout = 0.1, emb_dropout = 0.1)
-    def forward(self, x):
-        return self.ImageNet(x)
 
 def resnext101_32x48d_wsl(progress = True, **kwargs):
     kwargs['groups'] = 32
