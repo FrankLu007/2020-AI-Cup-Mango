@@ -1,21 +1,28 @@
 import os
 import csv
-import torch
+import torch, numpy
 import torchvision.transforms
 import torchvision.datasets
+from PIL import Image
 from model import EfficientNetWithFC
 from argparser import get_args
 
 def LoadCSV(file):
-    with open(file, 'r') as file:
+    with open(file, 'r', encoding = 'UTF-8') as file:
         csv_reader = csv.reader(file, delimiter = ',')
-        return list(csv_reader)[1:]
+        return list(csv_reader)
+
+def cut(image, a, b, c, d):
+    s = numpy.array(image)
+    z = numpy.zeros(s.shape, dtype = s.dtype)
+    z[b:d, a:c] = s[b:d, a:c]
+    return Image.fromarray(z)
 
 if __name__ == '__main__' :
 
     args = get_args()
-    ModelPath = '../'
-    DataPath = '../MangoData/merge/test/'
+    ModelPath = '../../'
+    DataPath = '../../Test/'
 
     transform_demo = torchvision.transforms.Compose([
         torchvision.transforms.Resize((args['size'], args['size'])),
@@ -27,28 +34,36 @@ if __name__ == '__main__' :
         torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
 
-    DataList = LoadCSV('../test_Final_example.csv')
+    DataList = LoadCSV('../../Test_mangoXYWH.csv')
     model = torch.load(ModelPath + args['load'])
     model.eval()
+    S = torch.nn.Sigmoid()
+    torch.backends.cudnn.benchmark = True
 
-    print('image_id,label')
+    print('image_id,D1,D2,D3,D4,D5')
 
-    label = ['A', 'B', 'C']
-    index = 0
+    index = 5377
     while index < len(DataList): 
         time = args['ep']
-        result = torch.zeros(len(DataList[index : index + args['bs']]), 3).cuda()
+        result = torch.zeros(len(DataList[index : index + args['bs']]), 5).cuda()
+#         ImageList = [cut(torchvision.datasets.folder.pil_loader(DataPath + file[0]), int(file[1]), int(file[2]), int(file[1]) + int(file[3]), int(file[2]) + int(file[4])) for file in DataList[index : index + args['bs']]]
         ImageList = [torchvision.datasets.folder.pil_loader(DataPath + file[0]) for file in DataList[index : index + args['bs']]]
         while time :
             images = torch.stack([transform_demo(image) for image in ImageList]).reshape(-1, 3, args['size'], args['size']).cuda()
             with torch.no_grad() :
                 with torch.cuda.amp.autocast():
-                    result += model(images).detach()
+                    result += S(model(images).detach())
             del images
             time -= 1
         del ImageList
-        tmp, pred = result.max(1)
+#         result[:, 0] *= 0.6
+#         result[:, 1] *= 0.6
+#         result[:, 2] *= 0.7
+#         result[:, 3] *= 1.8
+#         result[:, 4] *= 0.6
+        result[result < args['ep'] * 0.5] = 0
+        result[result >= args['ep'] * 0.5] = 1
         for i, file in enumerate(DataList[index : index + args['bs']]):
-            print(file[0] + ',' + label[pred[i]])
+            print(file[0] + ',' + str(int(result[i][0].item())) + ',' + str(int(result[i][1].item())) + ',' + str(int(result[i][2].item())) + ',' + str(int(result[i][3].item())) + ',' + str(int(result[i][4].item())))
         index += args['bs']
-        del tmp, pred, result
+        del result

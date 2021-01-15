@@ -1,9 +1,47 @@
-import os
+import os, csv
 import torch
 import torchvision.transforms
 import torchvision.datasets
-from model import EfficientNetWithFC, Ensemble
+from PIL import Image
+from model import ResNet, EfficientNetWithFC, Ensemble
 from argparser import get_args
+
+def LoadCSV(file):
+	with open(file, 'r', encoding = 'UTF-8') as file:
+		csv_reader = csv.reader(file, delimiter = ',')
+		data = list(csv_reader)
+	for d in data:
+		d[0] = d[0].replace('\\', '/')
+		for index in range(1, len(d)):
+			d[index] = int(d[index])
+	return data
+
+class MangoDataset(torch.utils.data.Dataset):
+	def __init__(self, path, file, transform, training = False):
+		super(MangoDataset, self).__init__()
+		self.path = path
+		self.file = LoadCSV(file)
+		self.transform = transform
+		self.mode = training
+		self.Beta = torch.distributions.beta.Beta(0.5, 0.5)
+	def __len__(self):
+		return len(self.file)
+	def __getitem__(self, index):
+		image = None
+		if self.mode and torch.rand(1) < 0.5:
+			beta = self.Beta.sample().item()
+			partner = int(self.__len__() * torch.rand(1))
+			A = Image.open(self.path + self.file[index][0])
+			B = Image.open(self.path + self.file[partner][0])
+			label = torch.Tensor(self.file[index][1:]) * beta + (1 - beta) * torch.Tensor(self.file[partner][1:])
+			image = self.transform(A) * beta + self.transform(B) * (1 - beta)
+			del beta, partner, A, B
+			return image, label
+		else :
+			image = Image.open(self.path + self.file[index][0])
+			label = torch.Tensor(self.file[index][1:])
+			return self.transform(image), label
+
 
 def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
 
@@ -30,7 +68,6 @@ def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
 			loss = LossFunction(outputs, labels)
 			TotalLoss += loss.item()
 
-
 		if optimizer :
 			# loss.backward()
 			scaler.scale(loss).backward()
@@ -39,45 +76,53 @@ def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
 			scaler.step(optimizer)
 			scaler.update()
 		
-		# convert to prediction
-		tmp, pred = outputs.detach().max(1)
-		del tmp, outputs
-		
-		# calculate accuracy
-		for i in range(len(pred)) :
-			if pred[i] == labels[i] :
-				correct[labels[i]] += 1
-			predict[pred[i]] += 1
-			cases[labels[i]] += 1
-		del labels, pred
+		if optimizer == None:
+			
+			pred = outputs > 0.5
 
-	# print result
-	for index in range(5):
-		if predict[index] :
-			precision[index] = correct[index] / predict[index] * 100
-		else :
-			precision[index] = 0
-		recall[index] = correct[index] / cases[index] * 100
-	P = sum(precision) / 5
-	R = sum(recall) / 5
+			# calculate accuracy
+			for c in range(5):
+				cases[c] += (labels[:, c] == 1).sum().item()
+				predict[c] += pred[:, c].sum().item()
+				correct[c] += (labels[:, c] * pred[:, c]).sum().item()
+			del pred
 
-	print('%5.2f%%'%(2 * R * P / (R + P)), TotalLoss / len(DataLoader))
-	for c in range(5):
-		if precision[c] + recall[c]:
-			print('\tclass %d'%c, '%6d'%cases[c], '%5.2f%%'%precision[c], '%5.2f%%'%recall[c], '%5.2f%%'%(2 * precision[c] * recall[c] / (precision[c] + recall[c])))
-		else :
-			print('\tclass %d'%c, '%6d'%cases[c], '%5.2f%%'%precision[c], '%5.2f%%'%recall[c], '0.00%%')
+		del outputs
 
-	# return accuracy
-	del correct, cases, TotalLoss, precision, recall
-	return 2 * R * P / (R + P)
+	if optimizer == None:
+		# print result
+		for index in range(5):
+			if predict[index] :
+				precision[index] = correct[index] / predict[index] * 100
+			else :
+				precision[index] = 0
+			recall[index] = correct[index] / cases[index] * 100
+		P = sum(precision) / 5
+		R = sum(recall) / 5
+
+		if P == 0 and R == 0:
+			P = 0.0001
+
+		print('%5.2f%%'%(2 * R * P / (R + P)), TotalLoss / len(DataLoader))
+		for c in range(5):
+			if precision[c] + recall[c]:
+				print('\tclass %d'%c, '%6d'%cases[c], '%5.2f%%'%precision[c], '%5.2f%%'%recall[c], '%5.2f%%'%(2 * precision[c] * recall[c] / (precision[c] + recall[c])))
+			else :
+				print('\tclass %d'%c, '%6d'%cases[c], '%5.2f%%'%precision[c], '%5.2f%%'%recall[c], '0.00%%')
+
+		# return accuracy
+		del correct, cases, TotalLoss, precision, recall
+		return 2 * R * P / (R + P)
+	else :
+		print(TotalLoss / len(DataLoader))
+		return TotalLoss
 
 
 if __name__ == '__main__' :
 
 	args = get_args()
 	ModelPath = '../../'
-	DataPath = '../../data/'
+	DataPath = '../../'
 
 	transform_train = torchvision.transforms.Compose([
 		torchvision.transforms.RandomRotation(180),
@@ -95,26 +140,26 @@ if __name__ == '__main__' :
 	    torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
 	])
 
-	weights = torch.IntTensor([2705, 532, 24447, 15373, 1779])
-	total = int(sum(weights))
-	sampler = torch.utils.data.sampler.WeightedRandomSampler(torch.Tensor([total / float(weights[0]) for _ in range(weights[0])] + [total / float(weights[1]) for _ in range(weights[1])] + [total / float(weights[2]) for _ in range(weights[2])] + [total / float(weights[3]) for _ in range(weights[3])] + [total / float(weights[4]) for _ in range(weights[4])]), total)
-	del weights
+	TrainingSet = MangoDataset(path = DataPath, file = '../../training.csv', transform = transform_train, training = True)
+	ValidationSet = MangoDataset(path = DataPath, file = '../../validation.csv', transform = transform_test)
 
-	TrainingSet = torchvision.datasets.ImageFolder(root = DataPath + 'train/', transform = transform_train)
-	ValidationSet = torchvision.datasets.ImageFolder(root = DataPath + 'validation/', transform = transform_test)
-
-	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = 4, pin_memory = True, drop_last = True, sampler = sampler, prefetch_factor = 1)
-	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = args['bs'], num_workers = 4, prefetch_factor = 1)
+	data = LoadCSV('../../training.csv')
+	weight = []
+	for d in data:
+		weight.append(max(torch.Tensor([13.10238204306001, 62.17934782608695, 1.8557988645579886, 3.1681989366415597, 18.829822251481236]) * torch.Tensor(d[1:])).item())
+	sampler = torch.utils.data.sampler.WeightedRandomSampler(torch.Tensor(weight), len(weight))
+	del weight
+	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = 0, pin_memory = True, drop_last = True, sampler = sampler, prefetch_factor = 2)
+	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = args['bs'], num_workers = 0, prefetch_factor = 2)
 
 	if args['load'] :
 		model = torch.load(ModelPath + args['load'])
 	else :
-		model = Ensemble([torch.load(ModelPath + 'b6.weight'), torch.load(ModelPath + 'b7.weight'), torch.load(ModelPath + 'vit.weight')]).cuda()
-# 		model = Vision_Transformer().cuda()
-#  		model = EfficientNetWithFC().cuda()
+ 		# model = EfficientNetWithFC().cuda()
+                model = Ensemble([torch.load(ModelPath + 'b7.weight'), torch.load(ModelPath + 'resnet.weight')]).cuda()
 	torch.backends.cudnn.benchmark = True
-	LossFunction = torch.nn.CrossEntropyLoss()
-	optimizer = torch.optim.SGD(model.parameters(), lr = args['lr'], momentum = 0.9)
+	LossFunction = torch.nn.BCEWithLogitsLoss(torch.Tensor([13.10238204306001, 62.17934782608695, 1.8557988645579886, 3.1681989366415597, 18.829822251481236]).cuda())
+	optimizer = torch.optim.SGD(model.parameters(), lr = args['lr'], momentum = 0.9, weight_decay = args['lr'] * 0.01)
 	scaler = torch.cuda.amp.GradScaler()
 
 	model.eval()

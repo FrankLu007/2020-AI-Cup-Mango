@@ -25,13 +25,14 @@ class Ensemble(torch.nn.Module):
         self.models = models
         for m in models:
             m.eval()
-        self.fc1 = torch.nn.Linear(2005, 2005)
-        self.fc2 = torch.nn.Linear(2005, 5)
+        self.fc1 = torch.nn.Linear(2000, 2000)
+        self.fc2 = torch.nn.Linear(2000, 2000)
+        self.fc3 = torch.nn.Linear(2000, 5)
         self.relu = torch.nn.ReLU(inplace = True)
     def forward(self, x):
         with torch.no_grad():
             x = torch.cat(tuple(m.ImageNet(x) for m in self.models), dim = 1)
-        return self.fc2(self.relu(self.fc1(x)))
+        return self.fc3(self.relu(self.fc2(self.relu(self.fc1(x)))))
 
 class Boosting(torch.nn.Module):
     def __init__(self, models):

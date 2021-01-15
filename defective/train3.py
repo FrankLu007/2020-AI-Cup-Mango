@@ -3,7 +3,7 @@ import torch
 import torchvision.transforms
 import torchvision.datasets
 from PIL import Image
-from model import ResNet
+from model import ResNet, EfficientNetWithFC, Ensemble
 from argparser import get_args
 
 def LoadCSV(file):
@@ -11,6 +11,7 @@ def LoadCSV(file):
 		csv_reader = csv.reader(file, delimiter = ',')
 		data = list(csv_reader)
 	for d in data:
+		d[0] = d[0].replace('\\', '/')
 		for index in range(1, len(d)):
 			d[index] = int(d[index])
 	return data
@@ -27,7 +28,7 @@ class MangoDataset(torch.utils.data.Dataset):
 		return len(self.file)
 	def __getitem__(self, index):
 		image = None
-		if self.mode and torch.rand(1) < 0.5:
+		if self.mode and torch.rand(1) < 0.5 and False:
 			beta = self.Beta.sample().item()
 			partner = int(self.__len__() * torch.rand(1))
 			A = Image.open(self.path + self.file[index][0])
@@ -40,7 +41,7 @@ class MangoDataset(torch.utils.data.Dataset):
 			image = Image.open(self.path + self.file[index][0])
 			label = torch.Tensor(self.file[index][1:])
 			return self.transform(image), label
-		
+
 
 def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
 
@@ -76,15 +77,15 @@ def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
 			scaler.update()
 		
 		if optimizer == None:
-			
-			pred = outputs > 0.5
+			S = torch.nn.Sigmoid().cuda()
+			pred = S(outputs) > 0.5
 
 			# calculate accuracy
 			for c in range(5):
 				cases[c] += (labels[:, c] == 1).sum().item()
 				predict[c] += pred[:, c].sum().item()
 				correct[c] += (labels[:, c] * pred[:, c]).sum().item()
-			del pred
+			del pred, S
 
 		del outputs
 
@@ -96,7 +97,7 @@ def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
 			else :
 				precision[index] = 0
 			recall[index] = correct[index] / cases[index] * 100
-		P = sum(precision) / 5
+		P = sum(precision) / 5 + 0.0001
 		R = sum(recall) / 5
 
 		print('%5.2f%%'%(2 * R * P / (R + P)), TotalLoss / len(DataLoader))
@@ -110,6 +111,7 @@ def forward(DataLoader, model, LossFunction, optimizer = None, scaler = None) :
 		del correct, cases, TotalLoss, precision, recall
 		return 2 * R * P / (R + P)
 	else :
+		print(TotalLoss / len(DataLoader))
 		return TotalLoss
 
 
@@ -117,7 +119,7 @@ if __name__ == '__main__' :
 
 	args = get_args()
 	ModelPath = '../../'
-	DataPath = '..\\..\\'
+	DataPath = '../../'
 
 	transform_train = torchvision.transforms.Compose([
 		torchvision.transforms.RandomRotation(180),
@@ -135,19 +137,26 @@ if __name__ == '__main__' :
 	    torchvision.transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
 	])
 
-	TrainingSet = MangoDataset(path = DataPath, file = '..\\..\\training.csv', transform = transform_train, training = True)
-	ValidationSet = MangoDataset(path = DataPath, file = '..\\..\\validation.csv', transform = transform_test)
+	TrainingSet = MangoDataset(path = DataPath, file = '../../training.csv', transform = transform_train, training = True)
+	ValidationSet = MangoDataset(path = DataPath, file = '../../validation.csv', transform = transform_test)
 
-	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = 2, pin_memory = True, drop_last = True, shuffle = True, prefetch_factor = 1)
-	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = args['bs'], num_workers = 2, prefetch_factor = 1)
+	data = LoadCSV('../../training.csv')
+	weight = []
+	for d in data:
+		weight.append(max(torch.Tensor([13.10238204306001, 62.17934782608695, 1.8557988645579886, 3.1681989366415597, 18.829822251481236]) * torch.Tensor(d[1:])).item())
+	sampler = torch.utils.data.sampler.WeightedRandomSampler(torch.Tensor(weight), len(weight))
+	del weight
+	TrainingLoader = torch.utils.data.DataLoader(TrainingSet, batch_size = args['bs'], num_workers = 4, pin_memory = True, drop_last = True, sampler = sampler, prefetch_factor = 2)
+	ValidationLoader = torch.utils.data.DataLoader(ValidationSet, batch_size = args['bs'], num_workers = 4, prefetch_factor = 2)
 
 	if args['load'] :
 		model = torch.load(ModelPath + args['load'])
 	else :
- 		model = ResNet().cuda()
+ 		model = EfficientNetWithFC().cuda()
+#  		model = Ensemble([torch.load(ModelPath + 'b7.weight'), torch.load(ModelPath + 'resnet.weight')]).cuda()
 	torch.backends.cudnn.benchmark = True
-	LossFunction = torch.nn.BCEWithLogitsLoss()
-	optimizer = torch.optim.SGD(model.parameters(), lr = args['lr'], momentum = 0.9, weight_decay = args['lr'] * 0.001)
+	LossFunction = torch.nn.BCEWithLogitsLoss(pos_weight = torch.Tensor([13.10238204306001, 62.17934782608695, 1.8557988645579886, 3.1681989366415597, 18.829822251481236]).cuda())
+	optimizer = torch.optim.SGD(model.parameters(), lr = args['lr'], momentum = 0.9, weight_decay = args['lr'] * 0.01)
 	scaler = torch.cuda.amp.GradScaler()
 
 	model.eval()
